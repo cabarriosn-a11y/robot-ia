@@ -454,10 +454,10 @@ def calcular_indicadores(df: pd.DataFrame) -> dict:
 class CerebroIA:
 
     MODELOS = [
-        'llama-3.3-70b-versatile',   # 100k tokens/día
-        'llama-3.3-70b-specdec',     # 100k tokens/día  ← reemplazo
-        'llama-3.1-8b-instant',      # 1,000k tokens/día
-        'gemma2-9b-it',              # 500k tokens/día
+        'llama3-70b-8192',       # estable y obediente con JSON
+        'llama-3.1-8b-instant',  # rápido
+        'gemma2-9b-it',          # respaldo
+        'mixtral-8x7b-32768',    # extra
      ]
 
     def __init__(self):
@@ -516,7 +516,9 @@ MEM:{memoria}
 EXP:1m=fuerte_rapida,2m=corta,3m=moderada,5m=todo_alineado
 
 JSON:
-{{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}"""
+RESPONDE UNICAMENTE CON ESTE JSON, SIN TEXTO ADICIONAL, SIN MARKDOWN:
+{{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}
+NO ESCRIBAS NADA MAS. SOLO EL JSON.
 
         for _ in range(len(self.MODELOS)):
             try:
