@@ -1,27 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║     ROBOT IA OTC v4.1 FINAL                                    ║
-║                                                                 ║
-║  ✅ Opera en IQ Option OTC automáticamente                     ║
-║  ✅ Avisa por Telegram con W/L y barra 🟢🔴                    ║
-║  ✅ Memoria de 30 trades — aprende de sus errores              ║
-║  ✅ Detecta soporte y resistencia reales                       ║
-║  ✅ No opera en zona media del precio                          ║
-║  ✅ Bloquea par con 2 pérdidas seguidas                        ║
-║  ✅ Filtro de horas por win rate histórico                     ║
-║  ✅ Confianza mínima 8/10 para operar                          ║
-║  ✅ La IA decide el tiempo de expiración (1/2/3/5 min)         ║
-║  ✅ Rotación de 4 modelos — nunca se queda sin tokens          ║
-║  ✅ Prompt corto — dura +30 horas con tokens gratis            ║
-║  ✅ JSON robusto — nunca crashea por respuesta mal formada     ║
-║  ✅ check_win_v3 + v2 como respaldo — siempre obtiene resultado║
-║  ✅ En PRACTICE no para aunque pierda — aprende siempre        ║
-║  ✅ Sin límite de trades en PRACTICE                           ║
-║  ✅ En REAL sí para si pierde 5 al día                         ║
-║  ✅ Se reactiva solo al día siguiente                          ║
-║  ✅ Guarda todo en CSV                                         ║
-║  ✅ Resumen diario automático por Telegram                     ║
-║  ✅ Reconexión automática si se cae                            ║
+║     ROBOT IA OTC v4.1 FINAL — VERIFICACION POR BALANCE        ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 VARIABLES DE ENTORNO en Railway:
@@ -94,7 +73,6 @@ CONFIG = {
     'candles_cantidad': 100,
     'candle_size':      60,
     'sleep_scan':       60,
-    'timeout_resultado': 10,   # segundos por intento de verificación
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,75 +190,6 @@ def tg_stop_real(losses: int):
         f"Límite de {losses} pérdidas.\n"
         f"<b>Se reactiva mañana 🔄</b>"
     )
-
-# ─────────────────────────────────────────────────────────────────────────────
-# VERIFICACION DE RESULTADO — thread-safe como el bot que funciona
-# ─────────────────────────────────────────────────────────────────────────────
-class ResultadoOp:
-    """Almacena resultado de forma thread-safe."""
-    def __init__(self):
-        self.valor     = None
-        self.encontrado = False
-        self.lock      = threading.Lock()
-
-    def set(self, valor):
-        with self.lock:
-            self.valor      = valor
-            self.encontrado = True
-
-    def get(self):
-        with self.lock:
-            return self.valor, self.encontrado
-
-def _verificar_en_thread(api, order_id, resultado_obj):
-    """Intenta obtener resultado usando v3 → v2 como respaldo."""
-    try:
-        # Intento 1 — check_win_v3 (el más confiable)
-        res = None
-        try:
-            res = api.check_win_v3(order_id)
-        except:
-            pass
-
-        # Intento 2 — check_win_v2 si v3 falló
-        if res is None:
-            try:
-                res = api.check_win_v2(order_id)
-            except:
-                pass
-
-        if res is not None:
-            # Normalizar: puede venir como bool o float
-            if isinstance(res, bool):
-                valor = 1.0 if res else -1.0
-            else:
-                valor = float(res)
-            resultado_obj.set(valor)
-    except:
-        pass
-
-def verificar_resultado(api, order_id, timeout=10) -> float | None:
-    """
-    Obtiene el resultado de una operación con timeout.
-    Usa thread separado para no bloquear el bot.
-    Devuelve: float (ganancia) o None si no hubo resultado.
-    """
-    resultado_obj = ResultadoOp()
-    t = threading.Thread(
-        target=_verificar_en_thread,
-        args=(api, order_id, resultado_obj),
-        daemon=True
-    )
-    t.start()
-
-    inicio = time.time()
-    while (time.time() - inicio) < timeout:
-        valor, encontrado = resultado_obj.get()
-        if encontrado:
-            return valor
-        time.sleep(0.5)
-
-    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MEMORIA DE TRADES
@@ -510,22 +419,16 @@ def calcular_indicadores(df: pd.DataFrame) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 def parsear_json_ia(texto: str) -> dict | None:
     texto = texto.replace('```json', '').replace('```', '').strip()
-
-    # Intento 1 — parsear directo
     try:
         return json.loads(texto)
     except:
         pass
-
-    # Intento 2 — regex
     try:
         match = re.search(r'\{[^{}]+\}', texto, re.DOTALL)
         if match:
             return json.loads(match.group())
     except:
         pass
-
-    # Intento 3 — entre primera { y última }
     try:
         if '{' in texto and '}' in texto:
             start = texto.index('{')
@@ -533,11 +436,10 @@ def parsear_json_ia(texto: str) -> dict | None:
             return json.loads(texto[start:end])
     except:
         pass
-
     return None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CEREBRO IA v4.1 — 4 MODELOS + PROMPT CORTO
+# CEREBRO IA v4.1 — 4 MODELOS ESTABLES + PROMPT CORTO
 # ─────────────────────────────────────────────────────────────────────────────
 class CerebroIA:
 
@@ -623,7 +525,7 @@ NO escribas texto antes ni despues. NO uses markdown. SOLO el JSON:
                 data  = parsear_json_ia(texto)
 
                 if data is None:
-                    log.warning(f"[IA] No JSON extraíble: {texto[:80]}")
+                    log.warning(f"[IA] No JSON: {texto[:80]}")
                     return {'decision': 'skip', 'confianza': 0,
                             'expiracion': 5, 'razon': 'No JSON',
                             'modelo': self.modelo_actual}
@@ -649,12 +551,12 @@ NO escribas texto antes ni despues. NO uses markdown. SOLO el JSON:
                 err = str(e)
                 if any(x in err for x in ['429', '400', 'rate_limit',
                                            'decommissioned', 'tokens']):
-                    log.warning(f"[IA] Rotando por error en {self.modelo_actual}: {err[:60]}")
+                    log.warning(f"[IA] Rotando: {err[:60]}")
                     self.siguiente_modelo()
                     time.sleep(2)
                     continue
                 else:
-                    log.error(f"[IA] Error inesperado: {e}")
+                    log.error(f"[IA] Error: {e}")
                     return {'decision': 'skip', 'confianza': 0,
                             'expiracion': 5, 'razon': str(e)[:50],
                             'modelo': self.modelo_actual}
@@ -736,11 +638,17 @@ class RobotIAOTC:
 
     def ejecutar(self, par, direccion, expiracion=5) -> tuple:
         """
-        Ejecuta la operación y verifica el resultado
-        usando check_win_v3 → check_win_v2 como respaldo.
-        Mismo método que usa bot_mejorado_v2 que sí funciona.
+        Ejecuta y verifica resultado.
+        Estrategia:
+        1. Intenta check_win_v3 y v2 (10 intentos)
+        2. Si no responden → compara balance antes/después
+           (siempre funciona sin importar la API)
         """
         try:
+            # Guardar balance ANTES
+            balance_antes = self.api.get_balance()
+            log.info(f"[TRADE] Balance antes: ${balance_antes:.2f}")
+
             ok, order_id = self.api.buy(
                 CONFIG['monto_por_trade'], par,
                 direccion, expiracion
@@ -751,42 +659,54 @@ class RobotIAOTC:
 
             log.info(f"[TRADE] #{order_id} | {direccion.upper()} {par} {expiracion}min")
 
-            # Esperar que expire la operación
-            time.sleep(expiracion * 60 + 5)
+            # Esperar que expire
+            time.sleep(expiracion * 60 + 15)
 
-            # Reintentar hasta obtener resultado
-            timeout = CONFIG['timeout_resultado']
-            for intento in range(15):
-                log.info(f"[TRADE] Verificando resultado intento {intento+1}/15...")
-                data = verificar_resultado(self.api, order_id, timeout)
+            # Intento con check_win_v3 / v2
+            for intento in range(10):
+                try:
+                    data = None
+                    try:
+                        data = self.api.check_win_v3(order_id)
+                    except:
+                        pass
+                    if data is None:
+                        try:
+                            data = self.api.check_win_v2(order_id)
+                        except:
+                            pass
 
-                if data is not None:
-                    ganancia  = data
-                    resultado = 'win' if ganancia > 0 else 'loss'
-                    log.info(f"[TRADE] ✅ {resultado.upper()} | ${ganancia:+.2f}")
-                    return resultado, ganancia
+                    if data is not None:
+                        ganancia  = float(data)
+                        resultado = 'win' if ganancia > 0 else 'loss'
+                        log.info(f"[TRADE] v3/v2: {resultado.upper()} | ${ganancia:+.2f}")
+                        return resultado, ganancia
 
-                time.sleep(3)
+                    log.info(f"[TRADE] Pendiente {intento+1}/10...")
+                    time.sleep(3)
+                except Exception as e:
+                    log.warning(f"[TRADE] Error check {intento+1}: {e}")
+                    time.sleep(3)
 
-            # Si después de 15 intentos no hay resultado — esperar 60s más
-            log.warning(f"[TRADE] Sin resultado en 15 intentos — esperando 60s más...")
-            time.sleep(60)
+            # Plan B — comparar balance (siempre funciona)
+            log.warning("[TRADE] v3/v2 sin respuesta — usando balance...")
+            time.sleep(5)
 
-            for intento in range(5):
-                log.info(f"[TRADE] Reintento tardío {intento+1}/5...")
-                data = verificar_resultado(self.api, order_id, timeout)
+            balance_despues = self.api.get_balance()
+            diferencia      = balance_despues - balance_antes
 
-                if data is not None:
-                    ganancia  = data
-                    resultado = 'win' if ganancia > 0 else 'loss'
-                    log.info(f"[TRADE] ✅ Tardío: {resultado.upper()} | ${ganancia:+.2f}")
-                    return resultado, ganancia
+            log.info(f"[TRADE] Balance: ${balance_antes:.2f} → "
+                     f"${balance_despues:.2f} | diff: ${diferencia:+.2f}")
 
-                time.sleep(10)
+            if diferencia > 0:
+                resultado = 'win'
+                ganancia  = round(diferencia, 2)
+            else:
+                resultado = 'loss'
+                ganancia  = -CONFIG['monto_por_trade']
 
-            log.warning(f"[TRADE] Sin resultado definitivo #{order_id}")
-            tg(f"⚠️ <b>Sin resultado — {par}</b>\n#{order_id} — no se contabiliza.")
-            return 'unknown', 0
+            log.info(f"[TRADE] Balance: {resultado.upper()} | ${ganancia:+.2f}")
+            return resultado, ganancia
 
         except Exception as e:
             log.error(f"[TRADE] Error: {e}")
@@ -909,10 +829,7 @@ class RobotIAOTC:
                 mejor['par'], mejor['direccion'], mejor['expiracion']
             )
 
-            if resultado == 'unknown':
-                log.warning(f"[TRADE] No contabilizado: {mejor['par']}")
-
-            elif resultado in ('win', 'loss'):
+            if resultado in ('win', 'loss'):
                 self.stats['total'] += 1
                 self.stats['pnl']   += ganancia
                 if resultado == 'win':
