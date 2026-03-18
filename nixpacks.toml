@@ -6,21 +6,3 @@ cmds = ["pip install -r requirements_groq.txt"]
 
 [start]
 cmd = "python robot_ia_otc_groq.py"
-```
-
----
-
-### También verifica que tienes estos 3 archivos en el repo
-```
-robot-ia-otc/
-├── robot_ia_otc_groq.py      ✅
-├── requirements_groq.txt     ✅
-├── nixpacks.toml             ← este es el que falta
-└── Procfile                  ✅
-```
-
----
-
-### El Procfile debe decir exactamente esto
-```
-worker: python robot_ia_otc_groq.py
