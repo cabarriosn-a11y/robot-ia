@@ -455,10 +455,10 @@ class CerebroIA:
 
     MODELOS = [
         'llama-3.3-70b-versatile',   # 100k tokens/día
-        'llama-3.1-70b-versatile',   # 100k tokens/día
+        'llama-3.3-70b-specdec',     # 100k tokens/día  ← reemplazo
         'llama-3.1-8b-instant',      # 1,000k tokens/día
         'gemma2-9b-it',              # 500k tokens/día
-    ]
+     ]
 
     def __init__(self):
         self.client        = Groq(api_key=CONFIG['groq_key'])
@@ -559,7 +559,7 @@ JSON:
 
             except Exception as e:
                 err = str(e)
-                if '429' in err or 'rate_limit' in err or 'tokens' in err.lower():
+                if '429' in err or '400' in err or 'rate_limit' in err or 'tokens' in err.lower() or 'decommissioned' in err.lower():
                     log.warning(f"[IA] Tokens agotados en {self.modelo_actual}")
                     self.siguiente_modelo()
                     time.sleep(2)
