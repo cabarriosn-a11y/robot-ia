@@ -91,7 +91,7 @@ CONFIG = {
     # Gestión de riesgo
     'monto_por_trade':    1,     # USD por operación
     'max_perdidas_dia':   5,     # para automáticamente si pierde 5 en el día
-    'max_trades_dia':     15,    # máximo trades por día
+    'max_trades_dia':     999,    # máximo trades por día
 
     # Racha perdedora por par
     'max_racha_loss_par': 2,     # bloquea par si pierde 2 seguidas
