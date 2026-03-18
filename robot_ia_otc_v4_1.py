@@ -1,27 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║     ROBOT IA OTC v4.1 - COMPLETO CON PROMPT CORTO             ║
-║                                                                 ║
-║  ✅ Opera en IQ Option OTC automáticamente                     ║
-║  ✅ Avisa por Telegram con W/L y barra 🟢🔴                    ║
-║  ✅ Memoria de 30 trades — aprende de sus errores              ║
-║  ✅ Detecta soporte y resistencia reales                       ║
-║  ✅ No opera en zona media del precio                          ║
-║  ✅ Bloquea par con 2 pérdidas seguidas                        ║
-║  ✅ Filtro de horas por win rate histórico                     ║
-║  ✅ Confianza mínima 8/10 para operar                          ║
-║  ✅ La IA decide el tiempo de expiración (1/2/3/5 min)         ║
-║  ✅ Rotación de 4 modelos — nunca se queda sin tokens          ║
-║     llama-3.3-70b → llama-3.1-70b → llama-3.1-8b → gemma2    ║
-║  ✅ Prompt corto — dura +30 horas con tokens gratis            ║
-║  ✅ En PRACTICE no para aunque pierda — aprende siempre        ║
-║  ✅ Sin límite de trades en PRACTICE                           ║
-║  ✅ En REAL sí para si pierde 5 al día                         ║
-║  ✅ Se reactiva solo al día siguiente                          ║
-║  ✅ Resultado tardío — espera 2 min antes de rendirse          ║
-║  ✅ Guarda todo en CSV incluyendo expiración                   ║
-║  ✅ Resumen diario automático por Telegram                     ║
-║  ✅ Reconexión automática si se cae                            ║
+║     ROBOT IA OTC v4.1 - MODELOS ESTABLES + JSON ROBUSTO       ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 VARIABLES DE ENTORNO en Railway:
@@ -39,6 +18,7 @@ import time
 import csv
 import json
 import logging
+import re
 from datetime import datetime, date
 from collections import deque, defaultdict
 
@@ -133,7 +113,6 @@ def tg_inicio(balance: float):
         f"Modo: <b>{CONFIG['iq_modo']}</b>\n"
         f"Balance: <b>${balance:.2f}</b>\n"
         f"IA: Groq con <b>4 modelos en rotación</b>\n"
-        f"Tokens: <b>+30 horas continuas</b>\n"
         f"Confianza mínima: <b>{CONFIG['min_confianza']}/10</b>\n"
         f"Monto/trade: <b>${CONFIG['monto_por_trade']}</b>\n"
         f"Expiración: <b>decidida por la IA</b>\n"
@@ -194,23 +173,21 @@ def tg_resumen_diario(stats: dict):
 def tg_reactivado(balance: float):
     tg(
         f"<b>🟢 BOT REACTIVADO</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
         f"Nuevo día — stats reseteadas\n"
-        f"Balance: <b>${balance:.2f}</b>\n"
-        f"<i>Comenzando a operar...</i>"
+        f"Balance: <b>${balance:.2f}</b>"
     )
 
 def tg_pausa_practica(losses: int):
     tg(
-        f"<b>⚠️ {losses} pérdidas alcanzadas hoy</b>\n"
-        f"Modo PRACTICE — bot <b>continúa operando</b> para aprender."
+        f"<b>⚠️ {losses} pérdidas hoy</b>\n"
+        f"Modo PRACTICE — continúa operando para aprender."
     )
 
 def tg_stop_real(losses: int):
     tg(
         f"<b>⏸️ BOT EN PAUSA</b>\n"
-        f"Límite de {losses} pérdidas diarias.\n"
-        f"<b>Se reactiva mañana a las 00:00</b> 🔄"
+        f"Límite de {losses} pérdidas.\n"
+        f"<b>Se reactiva mañana 🔄</b>"
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,14 +218,8 @@ def leer_memoria() -> str:
         for _, row in df.tail(5).iterrows():
             exp_txt = f"{row['expiracion']}m" \
                       if 'expiracion' in df.columns else ""
-            ultimos5 += (f"{row['par']} "
-                         f"{str(row['direccion']).upper()}"
-                         f"{exp_txt}={row['resultado']} ")
-        return (
-            f"T:{total} {wins}W/{losses}L WR:{wr}% | "
-            f"PARES:{resumen_par}| "
-            f"U5:{ultimos5}"
-        )
+            ultimos5 += f"{row['par']} {str(row['direccion']).upper()}{exp_txt}={row['resultado']} "
+        return f"T:{total} {wins}W/{losses}L WR:{wr}% | PARES:{resumen_par}| U5:{ultimos5}"
     except Exception as e:
         log.warning(f"[MEM] Error: {e}")
         return "Error historial."
@@ -278,9 +249,7 @@ def leer_wr_hora(hora: int) -> float:
         df = pd.read_csv(CSV_FILE)
         if 'hora' not in df.columns:
             return 50.0
-        df['hora_int'] = df['hora'].apply(
-            lambda x: int(str(x).split(':')[0])
-        )
+        df['hora_int'] = df['hora'].apply(lambda x: int(str(x).split(':')[0]))
         sub = df[df['hora_int'] == hora]
         if len(sub) < 3:
             return 50.0
@@ -344,24 +313,20 @@ def detectar_niveles(df: pd.DataFrame) -> dict:
     resistencias = [r for r in filtrar(resistencias, tolerancia * 2) if r > precio]
     soportes     = [s for s in filtrar(soportes, tolerancia * 2)     if s < precio]
 
-    res_cercana = min(resistencias, key=lambda x: abs(x - precio)) \
-                  if resistencias else None
-    sop_cercano = max(soportes,     key=lambda x: abs(x - precio)) \
-                  if soportes else None
+    res_cercana = min(resistencias, key=lambda x: abs(x - precio)) if resistencias else None
+    sop_cercano = max(soportes,     key=lambda x: abs(x - precio)) if soportes     else None
 
-    dist_res = round(abs(precio - res_cercana) / precio * 100, 4) \
-               if res_cercana else 999
-    dist_sop = round(abs(precio - sop_cercano) / precio * 100, 4) \
-               if sop_cercano else 999
+    dist_res = round(abs(precio - res_cercana) / precio * 100, 4) if res_cercana else 999
+    dist_sop = round(abs(precio - sop_cercano) / precio * 100, 4) if sop_cercano else 999
 
     cerca = CONFIG['nivel_cerca_pct']
     medio = CONFIG['nivel_medio_pct']
 
-    if dist_res <= cerca:        contexto = "PRECIO_EN_RESISTENCIA"
-    elif dist_sop <= cerca:      contexto = "PRECIO_EN_SOPORTE"
-    elif dist_res <= medio:      contexto = "PRECIO_CERCA_RESISTENCIA"
-    elif dist_sop <= medio:      contexto = "PRECIO_CERCA_SOPORTE"
-    else:                        contexto = "PRECIO_EN_ZONA_MEDIA"
+    if dist_res <= cerca:    contexto = "PRECIO_EN_RESISTENCIA"
+    elif dist_sop <= cerca:  contexto = "PRECIO_EN_SOPORTE"
+    elif dist_res <= medio:  contexto = "PRECIO_CERCA_RESISTENCIA"
+    elif dist_sop <= medio:  contexto = "PRECIO_CERCA_SOPORTE"
+    else:                    contexto = "PRECIO_EN_ZONA_MEDIA"
 
     return {
         'resistencia_cercana':  res_cercana,
@@ -449,16 +414,52 @@ def calcular_indicadores(df: pd.DataFrame) -> dict:
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CEREBRO IA v4.1 — ROTACION 4 MODELOS + PROMPT CORTO
+# PARSEAR JSON ROBUSTO — extrae JSON aunque la IA meta texto extra
+# ─────────────────────────────────────────────────────────────────────────────
+def parsear_json_ia(texto: str) -> dict | None:
+    """
+    Intenta extraer el JSON de la respuesta aunque la IA
+    haya agregado texto, markdown o explicaciones extra.
+    """
+    # Limpiar markdown
+    texto = texto.replace('```json', '').replace('```', '').strip()
+
+    # Intento 1 — parsear directo
+    try:
+        return json.loads(texto)
+    except:
+        pass
+
+    # Intento 2 — extraer con regex el primer JSON completo
+    try:
+        match = re.search(r'\{[^{}]+\}', texto, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+    except:
+        pass
+
+    # Intento 3 — extraer entre primera { y última }
+    try:
+        if '{' in texto and '}' in texto:
+            start = texto.index('{')
+            end   = texto.rindex('}') + 1
+            return json.loads(texto[start:end])
+    except:
+        pass
+
+    return None
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CEREBRO IA v4.1 — MODELOS ESTABLES + JSON ROBUSTO
 # ─────────────────────────────────────────────────────────────────────────────
 class CerebroIA:
 
     MODELOS = [
-        'llama3-70b-8192',       # estable y obediente con JSON
-        'llama-3.1-8b-instant',  # rápido
+        'llama3-70b-8192',       # estable, nunca eliminado
+        'llama-3.1-8b-instant',  # rápido, 1M tokens/día
         'gemma2-9b-it',          # respaldo
-        'mixtral-8x7b-32768',    # extra
-     ]
+        'mixtral-8x7b-32768',    # extra respaldo
+    ]
 
     def __init__(self):
         self.client        = Groq(api_key=CONFIG['groq_key'])
@@ -466,7 +467,6 @@ class CerebroIA:
         self.modelo_idx    = 0
         self.modelo_actual = self.MODELOS[0]
         log.info(f"[IA] Groq iniciado | {self.modelo_actual}")
-        log.info(f"[IA] Rotación: {' → '.join(self.MODELOS)}")
 
     def siguiente_modelo(self):
         self.modelo_idx    = (self.modelo_idx + 1) % len(self.MODELOS)
@@ -474,8 +474,7 @@ class CerebroIA:
         log.warning(f"[IA] ⚡ Rotando → {self.modelo_actual}")
         tg(
             f"⚡ <b>Rotación de modelo IA</b>\n"
-            f"Ahora usando: <b>{self.modelo_actual}</b>\n"
-            f"<i>El bot sigue operando sin interrupciones.</i>"
+            f"Ahora usando: <b>{self.modelo_actual}</b>"
         )
 
     def analizar(self, par: str, ind: dict, stats: dict,
@@ -496,8 +495,7 @@ class CerebroIA:
         else:
             nivel_desc = "ZONA_MEDIA"
 
-        # ── PROMPT CORTO — 60% menos tokens, misma inteligencia ──────────
-        prompt = f"""Trader experto OTC IQ Option. WR>65%. Sin señal=skip.
+        prompt = f"""Eres un trader experto OTC IQ Option. WR objetivo >65%.
 
 PAR:{par} H:{hora}h
 NIVEL:{ctx}|{nivel_desc}
@@ -515,59 +513,66 @@ MEM:{memoria}
 
 EXP:1m=fuerte_rapida,2m=corta,3m=moderada,5m=todo_alineado
 
-JSON:
-RESPONDE UNICAMENTE CON ESTE JSON, SIN TEXTO ADICIONAL, SIN MARKDOWN:
-{{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}
-NO ESCRIBAS NADA MAS. SOLO EL JSON.
+INSTRUCCION CRITICA: Responde UNICAMENTE con el siguiente JSON.
+NO escribas texto antes ni despues. NO uses markdown. SOLO el JSON:
+{{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}"""
 
         for _ in range(len(self.MODELOS)):
             try:
                 resp = self.client.chat.completions.create(
                     model=self.modelo_actual,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=80,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Eres un asistente de trading. SOLO respondes con JSON válido. Nunca escribes texto adicional."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=100,
                     temperature=0.1,
                 )
 
                 texto = resp.choices[0].message.content.strip()
-                texto = texto.replace('```json', '').replace('```', '').strip()
-                if '{' in texto:
-                    texto = texto[texto.index('{'):texto.rindex('}')+1]
 
-                resultado = json.loads(texto)
-                resultado['decision'] = resultado['decision'].lower().strip()
+                # Usar parseador robusto
+                data = parsear_json_ia(texto)
 
-                if resultado['decision'] not in ['call', 'put', 'skip']:
-                    resultado['decision'] = 'skip'
-                if not (1 <= resultado.get('confianza', 0) <= 10):
-                    resultado['confianza'] = 5
+                if data is None:
+                    log.warning(f"[IA] No se pudo extraer JSON: {texto[:80]}")
+                    return {'decision': 'skip', 'confianza': 0,
+                            'expiracion': 5, 'razon': 'No JSON',
+                            'modelo': self.modelo_actual}
 
-                exp = resultado.get('expiracion', 5)
-                resultado['expiracion'] = exp if exp in [1, 2, 3, 5] else 5
-                resultado['modelo']     = self.modelo_actual
+                data['decision'] = str(data.get('decision', 'skip')).lower().strip()
+                if data['decision'] not in ['call', 'put', 'skip']:
+                    data['decision'] = 'skip'
+                if not (1 <= data.get('confianza', 0) <= 10):
+                    data['confianza'] = 5
 
-                log.info(f"[IA] {par} → {resultado['decision'].upper()} "
-                         f"({resultado['confianza']}/10) "
-                         f"exp:{resultado['expiracion']}min "
+                exp = data.get('expiracion', 5)
+                data['expiracion'] = exp if exp in [1, 2, 3, 5] else 5
+                data['modelo']     = self.modelo_actual
+
+                log.info(f"[IA] {par} → {data['decision'].upper()} "
+                         f"({data['confianza']}/10) "
+                         f"exp:{data['expiracion']}min "
                          f"[{self.modelo_actual}] | "
-                         f"{resultado.get('razon','')[:50]}")
-                return resultado
-
-            except json.JSONDecodeError:
-                log.warning(f"[IA] Error JSON: {texto[:80]}")
-                return {'decision': 'skip', 'confianza': 0,
-                        'expiracion': 5, 'razon': 'Error JSON',
-                        'modelo': self.modelo_actual}
+                         f"{data.get('razon','')[:50]}")
+                return data
 
             except Exception as e:
                 err = str(e)
-                if '429' in err or '400' in err or 'rate_limit' in err or 'tokens' in err.lower() or 'decommissioned' in err.lower():
-                    log.warning(f"[IA] Tokens agotados en {self.modelo_actual}")
+                if any(x in err for x in ['429', '400', 'rate_limit',
+                                           'decommissioned', 'tokens']):
+                    log.warning(f"[IA] Error modelo {self.modelo_actual}: {err[:60]}")
                     self.siguiente_modelo()
                     time.sleep(2)
                     continue
                 else:
-                    log.error(f"[IA] Error: {e}")
+                    log.error(f"[IA] Error inesperado: {e}")
                     return {'decision': 'skip', 'confianza': 0,
                             'expiracion': 5, 'razon': str(e)[:50],
                             'modelo': self.modelo_actual}
@@ -657,11 +662,9 @@ class RobotIAOTC:
                 log.error(f"[TRADE] No se pudo abrir orden en {par}")
                 return None, 0
 
-            log.info(f"[TRADE] #{order_id} | "
-                     f"{direccion.upper()} {par} {expiracion}min")
+            log.info(f"[TRADE] #{order_id} | {direccion.upper()} {par} {expiracion}min")
             time.sleep(expiracion * 60 + 10)
 
-            # Primer bloque — 10 intentos × 3s
             for intento in range(10):
                 try:
                     data = self.api.check_win_v4(order_id)
@@ -676,7 +679,6 @@ class RobotIAOTC:
                     log.warning(f"[TRADE] Error check {intento+1}: {e}")
                     time.sleep(3)
 
-            # Segundo bloque — 60s espera + 5 intentos × 10s
             log.warning(f"[TRADE] Sin resultado — esperando 60s más #{order_id}...")
             time.sleep(60)
             for intento in range(5):
@@ -694,10 +696,7 @@ class RobotIAOTC:
                     time.sleep(10)
 
             log.warning(f"[TRADE] Sin resultado definitivo #{order_id}")
-            tg(
-                f"⚠️ <b>Sin resultado — {par}</b>\n"
-                f"#{order_id} — no se contabiliza."
-            )
+            tg(f"⚠️ <b>Sin resultado — {par}</b>\n#{order_id} — no se contabiliza.")
             return 'unknown', 0
 
         except Exception as e:
@@ -774,9 +773,7 @@ class RobotIAOTC:
             log.info(f"[OK] {par} — {ind['contexto_nivel']} "
                      f"— consultando {self.ia.modelo_actual}...")
 
-            decision = self.ia.analizar(
-                par, ind, self.stats, racha_loss, wr_hora
-            )
+            decision = self.ia.analizar(par, ind, self.stats, racha_loss, wr_hora)
 
             if decision['decision'] == 'skip':
                 continue
@@ -805,10 +802,8 @@ class RobotIAOTC:
             return
 
         mejor = max(candidatos, key=lambda x: x['confianza'])
-        log.info(f"[BOT] ✅ {mejor['par']} "
-                 f"{mejor['direccion'].upper()} | "
-                 f"conf:{mejor['confianza']}/10 | "
-                 f"exp:{mejor['expiracion']}min | "
+        log.info(f"[BOT] ✅ {mejor['par']} {mejor['direccion'].upper()} | "
+                 f"conf:{mejor['confianza']}/10 | exp:{mejor['expiracion']}min | "
                  f"{mejor['nivel']} [{mejor['modelo']}]")
 
         tg_entrada(
@@ -822,9 +817,7 @@ class RobotIAOTC:
         self.operando = True
         try:
             resultado, ganancia = self.ejecutar(
-                mejor['par'],
-                mejor['direccion'],
-                mejor['expiracion']
+                mejor['par'], mejor['direccion'], mejor['expiracion']
             )
 
             if resultado == 'unknown':
@@ -841,13 +834,11 @@ class RobotIAOTC:
                     self.stats_par[mejor['par']]['losses'] += 1
 
                 balance = self.api.get_balance()
-
                 tg_resultado(
                     mejor['par'], mejor['direccion'],
                     resultado, ganancia, balance,
                     self.stats['wins'], self.stats['losses']
                 )
-
                 self.ia.registrar(
                     mejor['par'], mejor['direccion'],
                     mejor['expiracion'], resultado
@@ -855,14 +846,10 @@ class RobotIAOTC:
                 guardar_csv(
                     mejor['par'], mejor['direccion'],
                     mejor['confianza'], mejor['razon'],
-                    mejor['expiracion'], resultado,
-                    ganancia, balance
+                    mejor['expiracion'], resultado, ganancia, balance
                 )
-
-                log.info(f"[STATS] {self.stats['wins']}W/"
-                         f"{self.stats['losses']}L | "
-                         f"P&L ${self.stats['pnl']:+.2f} | "
-                         f"${balance:.2f}")
+                log.info(f"[STATS] {self.stats['wins']}W/{self.stats['losses']}L | "
+                         f"P&L ${self.stats['pnl']:+.2f} | ${balance:.2f}")
 
                 if self.stats['losses'] >= CONFIG['max_perdidas_dia']:
                     if CONFIG['iq_modo'] == 'PRACTICE':
