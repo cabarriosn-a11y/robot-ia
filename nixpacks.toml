@@ -1,8 +1,1 @@
-[phases.setup]
-nixPkgs = ["python311"]
 
-[phases.install]
-cmds = ["pip install -r requirements_groq.txt"]
-
-[start]
-cmd = "python robot_ia_otc_groq.py"
