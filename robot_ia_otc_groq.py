@@ -888,11 +888,18 @@ class RobotIAOTC:
                          f"| Balance ${balance:.2f}")
 
                 # Parar si se alcanza límite de pérdidas
+                # En PRACTICE no para — sigue operando para educar a la IA
                 if self.stats['losses'] >= CONFIG['max_perdidas_dia']:
-                    tg_stop(
-                        f"Límite de {CONFIG['max_perdidas_dia']} pérdidas "
-                        f"diarias alcanzado. Reanuda mañana."
-                    )
+                    if CONFIG['iq_modo'] == 'REAL':
+                       tg_stop(
+                         f"Límite de {CONFIG['max_perdidas_dia']} pérdidas "
+                         f"diarias alcanzado. Reanuda mañana."
+                       )
+                    else:
+                        tg(
+                            f"⚠️ {CONFIG['max_perdidas_dia']} pérdidas alcanzadas "
+                            f"— modo PRACTICE, continúa operando para aprender."
+                        )
         finally:
             self.operando = False
 
