@@ -571,10 +571,32 @@ class RobotIAOTC:
     def __init__(self):
         self.api       = None
         self.ia        = CerebroIA()
-        self.stats     = {'total':0,'wins':0,'losses':0,'pnl':0.0}
+        self.stats     = self._cargar_stats_hoy()
         self.stats_par = defaultdict(lambda: {'wins':0,'losses':0})
         self.operando  = False
         self._dia      = date.today()
+
+    def _cargar_stats_hoy(self) -> dict:
+        """Recupera wins/losses/pnl del día actual desde el CSV."""
+        stats = {'total':0,'wins':0,'losses':0,'pnl':0.0}
+        if not os.path.exists(CSV_FILE):
+            return stats
+        try:
+            df  = pd.read_csv(CSV_FILE)
+            hoy = df[df['fecha'] == date.today().isoformat()]
+            if hoy.empty:
+                return stats
+            stats['wins']   = len(hoy[hoy['resultado'] == 'win'])
+            stats['losses'] = len(hoy[hoy['resultado'] == 'loss'])
+            stats['total']  = stats['wins'] + stats['losses']
+            stats['pnl']    = round(hoy['ganancia'].sum(), 2)
+            log.info(f"[BOT] Stats recuperadas: "
+                     f"{stats['wins']}W/{stats['losses']}L "
+                     f"P&L ${stats['pnl']:+.2f}")
+            return stats
+        except Exception as e:
+            log.warning(f"[BOT] Error cargando stats: {e}")
+            return stats
 
     def conectar(self) -> bool:
         for i in range(1, 4):
