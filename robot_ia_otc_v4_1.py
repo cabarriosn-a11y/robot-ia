@@ -1,6 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║     ROBOT IA OTC v4.1 FINAL — VERIFICACION POR BALANCE        ║
+║     ROBOT IA OTC v4.2 — VERIFICACION 100% POR BALANCE         ║
+║     Sin check_win — usa diferencia de balance siempre          ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 VARIABLES DE ENTORNO en Railway:
@@ -19,7 +20,6 @@ import csv
 import json
 import logging
 import re
-import threading
 from datetime import datetime, date
 from collections import deque, defaultdict
 
@@ -65,7 +65,6 @@ CONFIG = {
     ],
     'monto_por_trade':    1,
     'max_perdidas_dia':   5,
-    'max_trades_dia':     9999,
     'max_racha_loss_par': 2,
     'nivel_tolerancia_pct': 0.002,
     'nivel_cerca_pct':      0.15,
@@ -109,20 +108,17 @@ def tg(msg: str):
 
 def tg_inicio(balance: float):
     tg(
-        f"<b>🤖 ROBOT IA OTC v4.1 ACTIVADO</b>\n"
+        f"<b>🤖 ROBOT IA OTC v4.2 ACTIVADO</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"Modo: <b>{CONFIG['iq_modo']}</b>\n"
         f"Balance: <b>${balance:.2f}</b>\n"
-        f"IA: Groq con <b>4 modelos en rotación</b>\n"
-        f"Confianza mínima: <b>{CONFIG['min_confianza']}/10</b>\n"
-        f"Monto/trade: <b>${CONFIG['monto_por_trade']}</b>\n"
-        f"Expiración: <b>decidida por la IA</b>\n"
+        f"IA: Groq con 4 modelos en rotación\n"
+        f"Resultado: <b>por comparación de balance</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"<i>Opera solo en niveles clave reales.</i>"
     )
 
-def tg_entrada(par, direccion, confianza, razon, precio,
-               nivel, expiracion, modelo, stats):
+def tg_entrada(par, direccion, confianza, razon, precio, nivel, expiracion, modelo, stats):
     emoji = "📈" if direccion == "call" else "📉"
     total = stats['wins'] + stats['losses']
     wr    = round(stats['wins'] / total * 100, 1) if total > 0 else 0
@@ -132,8 +128,7 @@ def tg_entrada(par, direccion, confianza, razon, precio,
         f"<b>{'CALL ☝️' if direccion=='call' else 'PUT 👇'}</b>\n"
         f"Precio: <b>{precio}</b>\n"
         f"Nivel: <b>{nivel}</b>\n"
-        f"Monto: ${CONFIG['monto_por_trade']} | "
-        f"Exp: <b>{expiracion} min</b> ← IA decidió\n"
+        f"Monto: ${CONFIG['monto_por_trade']} | Exp: <b>{expiracion} min</b>\n"
         f"🧠 Confianza: <b>{confianza}/10</b>\n"
         f"🤖 Modelo: <i>{modelo}</i>\n"
         f"📋 <i>{razon}</i>\n"
@@ -172,27 +167,16 @@ def tg_resumen_diario(stats: dict):
     )
 
 def tg_reactivado(balance: float):
-    tg(
-        f"<b>🟢 BOT REACTIVADO</b>\n"
-        f"Nuevo día — stats reseteadas\n"
-        f"Balance: <b>${balance:.2f}</b>"
-    )
+    tg(f"<b>🟢 BOT REACTIVADO</b>\nNuevo día\nBalance: <b>${balance:.2f}</b>")
 
 def tg_pausa_practica(losses: int):
-    tg(
-        f"<b>⚠️ {losses} pérdidas hoy</b>\n"
-        f"Modo PRACTICE — continúa operando para aprender."
-    )
+    tg(f"<b>⚠️ {losses} pérdidas hoy</b>\nModo PRACTICE — continúa operando.")
 
 def tg_stop_real(losses: int):
-    tg(
-        f"<b>⏸️ BOT EN PAUSA</b>\n"
-        f"Límite de {losses} pérdidas.\n"
-        f"<b>Se reactiva mañana 🔄</b>"
-    )
+    tg(f"<b>⏸️ BOT EN PAUSA</b>\nLímite de {losses} pérdidas.\n<b>Se reactiva mañana 🔄</b>")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MEMORIA DE TRADES
+# MEMORIA
 # ─────────────────────────────────────────────────────────────────────────────
 CSV_FILE = 'trades_ia.csv'
 
@@ -217,8 +201,7 @@ def leer_memoria() -> str:
             resumen_par += f"{par}:{pw}W/{pl}L({pwr}%) "
         ultimos5 = ""
         for _, row in df.tail(5).iterrows():
-            exp_txt = f"{row['expiracion']}m" \
-                      if 'expiracion' in df.columns else ""
+            exp_txt = f"{row['expiracion']}m" if 'expiracion' in df.columns else ""
             ultimos5 += f"{row['par']} {str(row['direccion']).upper()}{exp_txt}={row['resultado']} "
         return f"T:{total} {wins}W/{losses}L WR:{wr}% | PARES:{resumen_par}| U5:{ultimos5}"
     except Exception as e:
@@ -258,27 +241,23 @@ def leer_wr_hora(hora: int) -> float:
     except:
         return 50.0
 
-def guardar_csv(par, direccion, confianza, razon,
-                expiracion, resultado, ganancia, balance):
+def guardar_csv(par, direccion, confianza, razon, expiracion, resultado, ganancia, balance):
     existe = os.path.exists(CSV_FILE)
     with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         if not existe:
-            w.writerow(['fecha', 'hora', 'par', 'direccion', 'monto',
-                        'confianza', 'expiracion', 'razon',
-                        'resultado', 'ganancia', 'balance'])
+            w.writerow(['fecha','hora','par','direccion','monto','confianza',
+                        'expiracion','razon','resultado','ganancia','balance'])
         w.writerow([
             date.today().isoformat(),
             datetime.now().strftime('%H:%M:%S'),
-            par, direccion,
-            CONFIG['monto_por_trade'],
-            confianza, expiracion,
-            str(razon)[:80],
+            par, direccion, CONFIG['monto_por_trade'],
+            confianza, expiracion, str(razon)[:80],
             resultado, round(ganancia, 2), round(balance, 2)
         ])
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DETECCION DE SOPORTE Y RESISTENCIA
+# SOPORTE Y RESISTENCIA
 # ─────────────────────────────────────────────────────────────────────────────
 def detectar_niveles(df: pd.DataFrame) -> dict:
     highs      = df['high'].values
@@ -286,19 +265,18 @@ def detectar_niveles(df: pd.DataFrame) -> dict:
     precio     = float(df['close'].iloc[-1])
     tolerancia = precio * CONFIG['nivel_tolerancia_pct']
 
-    resistencias = []
-    soportes     = []
+    resistencias, soportes = [], []
 
     for i in range(2, len(highs) - 2):
-        if highs[i] >= max(highs[max(0, i-2):i]) and \
-           highs[i] >= max(highs[i+1:min(len(highs), i+3)]):
-            if sum(1 for h in highs if abs(h - highs[i]) < tolerancia) >= 2:
+        if highs[i] >= max(highs[max(0,i-2):i]) and \
+           highs[i] >= max(highs[i+1:min(len(highs),i+3)]):
+            if sum(1 for h in highs if abs(h-highs[i]) < tolerancia) >= 2:
                 resistencias.append(round(highs[i], 6))
 
     for i in range(2, len(lows) - 2):
-        if lows[i] <= min(lows[max(0, i-2):i]) and \
-           lows[i] <= min(lows[i+1:min(len(lows), i+3)]):
-            if sum(1 for l in lows if abs(l - lows[i]) < tolerancia) >= 2:
+        if lows[i] <= min(lows[max(0,i-2):i]) and \
+           lows[i] <= min(lows[i+1:min(len(lows),i+3)]):
+            if sum(1 for l in lows if abs(l-lows[i]) < tolerancia) >= 2:
                 soportes.append(round(lows[i], 6))
 
     def filtrar(niveles, tol):
@@ -311,143 +289,109 @@ def detectar_niveles(df: pd.DataFrame) -> dict:
                 filtrados.append(n)
         return filtrados
 
-    resistencias = [r for r in filtrar(resistencias, tolerancia * 2) if r > precio]
-    soportes     = [s for s in filtrar(soportes, tolerancia * 2)     if s < precio]
+    resistencias = [r for r in filtrar(resistencias, tolerancia*2) if r > precio]
+    soportes     = [s for s in filtrar(soportes, tolerancia*2)     if s < precio]
 
-    res_cercana = min(resistencias, key=lambda x: abs(x - precio)) if resistencias else None
-    sop_cercano = max(soportes,     key=lambda x: abs(x - precio)) if soportes     else None
-
-    dist_res = round(abs(precio - res_cercana) / precio * 100, 4) if res_cercana else 999
-    dist_sop = round(abs(precio - sop_cercano) / precio * 100, 4) if sop_cercano else 999
+    res_cercana = min(resistencias, key=lambda x: abs(x-precio)) if resistencias else None
+    sop_cercano = max(soportes,     key=lambda x: abs(x-precio)) if soportes     else None
+    dist_res    = round(abs(precio-res_cercana)/precio*100, 4)   if res_cercana  else 999
+    dist_sop    = round(abs(precio-sop_cercano)/precio*100, 4)   if sop_cercano  else 999
 
     cerca = CONFIG['nivel_cerca_pct']
     medio = CONFIG['nivel_medio_pct']
 
-    if dist_res <= cerca:    contexto = "PRECIO_EN_RESISTENCIA"
-    elif dist_sop <= cerca:  contexto = "PRECIO_EN_SOPORTE"
-    elif dist_res <= medio:  contexto = "PRECIO_CERCA_RESISTENCIA"
-    elif dist_sop <= medio:  contexto = "PRECIO_CERCA_SOPORTE"
-    else:                    contexto = "PRECIO_EN_ZONA_MEDIA"
+    if dist_res <= cerca:    ctx = "PRECIO_EN_RESISTENCIA"
+    elif dist_sop <= cerca:  ctx = "PRECIO_EN_SOPORTE"
+    elif dist_res <= medio:  ctx = "PRECIO_CERCA_RESISTENCIA"
+    elif dist_sop <= medio:  ctx = "PRECIO_CERCA_SOPORTE"
+    else:                    ctx = "PRECIO_EN_ZONA_MEDIA"
 
     return {
         'resistencia_cercana':  res_cercana,
         'soporte_cercano':      sop_cercano,
         'dist_resistencia_pct': dist_res,
         'dist_soporte_pct':     dist_sop,
-        'contexto_nivel':       contexto,
+        'contexto_nivel':       ctx,
         'total_resistencias':   len(resistencias),
         'total_soportes':       len(soportes),
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INDICADORES TECNICOS
+# INDICADORES
 # ─────────────────────────────────────────────────────────────────────────────
 def calcular_indicadores(df: pd.DataFrame) -> dict:
     c = df['close']
-
     delta = c.diff()
     gain  = delta.clip(lower=0).ewm(span=14, adjust=False).mean()
     loss  = (-delta).clip(lower=0).ewm(span=14, adjust=False).mean()
-    rsi   = float((100 - (100 / (1 + gain / loss))).iloc[-1])
-
+    rsi   = float((100-(100/(1+gain/loss))).iloc[-1])
     ema9  = float(c.ewm(span=9,  adjust=False).mean().iloc[-1])
     ema21 = float(c.ewm(span=21, adjust=False).mean().iloc[-1])
     ema50 = float(c.ewm(span=50, adjust=False).mean().iloc[-1])
-
-    ml  = c.ewm(span=12, adjust=False).mean() - c.ewm(span=26, adjust=False).mean()
-    ms  = ml.ewm(span=9, adjust=False).mean()
-    mh  = float((ml - ms).iloc[-1])
-    mhp = float((ml - ms).iloc[-2])
-
+    ml    = c.ewm(span=12, adjust=False).mean()-c.ewm(span=26, adjust=False).mean()
+    ms    = ml.ewm(span=9, adjust=False).mean()
+    mh    = float((ml-ms).iloc[-1])
+    mhp   = float((ml-ms).iloc[-2])
     sma   = c.rolling(20).mean()
     std   = c.rolling(20).std()
-    bb_up = float((sma + 2 * std).iloc[-1])
-    bb_dn = float((sma - 2 * std).iloc[-1])
-    bb_md = float(sma.iloc[-1])
-
-    hl      = df['high'] - df['low']
-    atr     = float(hl.rolling(14).mean().iloc[-1])
-    atr_rel = round(atr / float(c.iloc[-1]) * 100, 4)
-
-    va = df['volume'].rolling(20).mean()
-    vr = float((df['volume'] / va).iloc[-1])
-
-    precio = float(c.iloc[-1])
-    cambio = round((precio - float(c.iloc[-2])) / float(c.iloc[-2]) * 100, 4)
-
-    rsi_s  = 100 - (100 / (1 + gain / loss))
-    p_sube = float(c.iloc[-1]) > float(c.iloc[-5])
-    r_sube = float(rsi_s.iloc[-1]) > float(rsi_s.iloc[-5])
-    diverg = 'BAJ' if p_sube and not r_sube else \
-             'ALC' if not p_sube and r_sube else 'N'
-
-    ultimas = ['V' if df['close'].iloc[i] >= df['open'].iloc[i]
-               else 'R' for i in range(-5, 0)]
-
-    conf_call = sum([rsi < 35, ema9 > ema21, mh > mhp, precio < bb_dn, vr > 1.3])
-    conf_put  = sum([rsi > 65, ema9 < ema21, mh < mhp, precio > bb_up, vr > 1.3])
-
-    niveles = detectar_niveles(df)
-
+    bb_up = float((sma+2*std).iloc[-1])
+    bb_dn = float((sma-2*std).iloc[-1])
+    hl    = df['high']-df['low']
+    atr   = float(hl.rolling(14).mean().iloc[-1])
+    atr_r = round(atr/float(c.iloc[-1])*100, 4)
+    va    = df['volume'].rolling(20).mean()
+    vr    = float((df['volume']/va).iloc[-1])
+    precio= float(c.iloc[-1])
+    cambio= round((precio-float(c.iloc[-2]))/float(c.iloc[-2])*100, 4)
+    rsi_s = 100-(100/(1+gain/loss))
+    diverg= 'BAJ' if float(c.iloc[-1])>float(c.iloc[-5]) and float(rsi_s.iloc[-1])<float(rsi_s.iloc[-5]) else \
+            'ALC' if float(c.iloc[-1])<float(c.iloc[-5]) and float(rsi_s.iloc[-1])>float(rsi_s.iloc[-5]) else 'N'
+    ultimas=['V' if df['close'].iloc[i]>=df['open'].iloc[i] else 'R' for i in range(-5,0)]
+    conf_call=sum([rsi<35, ema9>ema21, mh>mhp, precio<bb_dn, vr>1.3])
+    conf_put =sum([rsi>65, ema9<ema21, mh<mhp, precio>bb_up, vr>1.3])
+    niveles  = detectar_niveles(df)
     return {
-        'precio':            round(precio, 6),
-        'cambio_pct':        cambio,
-        'rsi':               round(rsi, 2),
-        'rsi_estado':        'SC' if rsi > 70 else 'SV' if rsi < 30 else 'N',
-        'divergencia_rsi':   diverg,
-        'ema_tendencia':     'ALC' if ema9 > ema21 > ema50 else
-                             'BAJ' if ema9 < ema21 < ema50 else 'MIX',
-        'ema9':              round(ema9, 6),
-        'ema21':             round(ema21, 6),
-        'macd_hist':         round(mh, 8),
-        'macd_sube':         mh > mhp,
-        'bb_superior':       round(bb_up, 6),
-        'bb_inferior':       round(bb_dn, 6),
-        'bb_medio':          round(bb_md, 6),
-        'precio_vs_bb':      'ARR' if precio > bb_up else
-                             'ABA' if precio < bb_dn else 'DEN',
-        'atr_rel_pct':       atr_rel,
-        'volumen_rel':       round(vr, 2),
-        'ultimas_5_velas':   ultimas,
-        'confluencias_call': conf_call,
-        'confluencias_put':  conf_put,
+        'precio':precio, 'cambio_pct':cambio,
+        'rsi':round(rsi,2),
+        'rsi_estado':'SC' if rsi>70 else 'SV' if rsi<30 else 'N',
+        'divergencia_rsi':diverg,
+        'ema_tendencia':'ALC' if ema9>ema21>ema50 else 'BAJ' if ema9<ema21<ema50 else 'MIX',
+        'ema9':round(ema9,6), 'ema21':round(ema21,6),
+        'macd_hist':round(mh,8), 'macd_sube':mh>mhp,
+        'bb_superior':round(bb_up,6), 'bb_inferior':round(bb_dn,6),
+        'precio_vs_bb':'ARR' if precio>bb_up else 'ABA' if precio<bb_dn else 'DEN',
+        'atr_rel_pct':atr_r, 'volumen_rel':round(vr,2),
+        'ultimas_5_velas':ultimas,
+        'confluencias_call':conf_call, 'confluencias_put':conf_put,
         **niveles,
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PARSEAR JSON ROBUSTO
+# JSON ROBUSTO
 # ─────────────────────────────────────────────────────────────────────────────
-def parsear_json_ia(texto: str) -> dict | None:
-    texto = texto.replace('```json', '').replace('```', '').strip()
+def parsear_json(texto: str) -> dict | None:
+    texto = texto.replace('```json','').replace('```','').strip()
+    try: return json.loads(texto)
+    except: pass
     try:
-        return json.loads(texto)
-    except:
-        pass
-    try:
-        match = re.search(r'\{[^{}]+\}', texto, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-    except:
-        pass
+        m = re.search(r'\{[^{}]+\}', texto, re.DOTALL)
+        if m: return json.loads(m.group())
+    except: pass
     try:
         if '{' in texto and '}' in texto:
-            start = texto.index('{')
-            end   = texto.rindex('}') + 1
-            return json.loads(texto[start:end])
-    except:
-        pass
+            return json.loads(texto[texto.index('{'):texto.rindex('}')+1])
+    except: pass
     return None
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CEREBRO IA v4.1 — 4 MODELOS ESTABLES + PROMPT CORTO
+# CEREBRO IA
 # ─────────────────────────────────────────────────────────────────────────────
 class CerebroIA:
-
     MODELOS = [
-        'llama3-70b-8192',       # estable, nunca eliminado
-        'llama-3.1-8b-instant',  # rápido, 1M tokens/día
-        'gemma2-9b-it',          # respaldo
-        'mixtral-8x7b-32768',    # extra respaldo
+        'llama3-70b-8192',
+        'llama-3.1-8b-instant',
+        'gemma2-9b-it',
+        'mixtral-8x7b-32768',
     ]
 
     def __init__(self):
@@ -458,133 +402,92 @@ class CerebroIA:
         log.info(f"[IA] Groq iniciado | {self.modelo_actual}")
 
     def siguiente_modelo(self):
-        self.modelo_idx    = (self.modelo_idx + 1) % len(self.MODELOS)
+        self.modelo_idx    = (self.modelo_idx+1) % len(self.MODELOS)
         self.modelo_actual = self.MODELOS[self.modelo_idx]
-        log.warning(f"[IA] ⚡ Rotando → {self.modelo_actual}")
+        log.warning(f"[IA] Rotando → {self.modelo_actual}")
         tg(f"⚡ <b>Rotación modelo IA</b>\nAhora: <b>{self.modelo_actual}</b>")
 
-    def analizar(self, par: str, ind: dict, stats: dict,
-                 racha_loss: int, wr_hora: float) -> dict:
-
+    def analizar(self, par, ind, stats, racha_loss, wr_hora) -> dict:
         memoria = leer_memoria()
         hora    = datetime.now().hour
+        ctx     = ind['contexto_nivel']
 
-        ctx = ind['contexto_nivel']
         if ctx == 'PRECIO_EN_RESISTENCIA':
-            nivel_desc = f"EN_RES:{ind['resistencia_cercana']}({ind['dist_resistencia_pct']}%)->PUT"
+            nd = f"EN_RES:{ind['resistencia_cercana']}({ind['dist_resistencia_pct']}%)->PUT"
         elif ctx == 'PRECIO_EN_SOPORTE':
-            nivel_desc = f"EN_SOP:{ind['soporte_cercano']}({ind['dist_soporte_pct']}%)->CALL"
+            nd = f"EN_SOP:{ind['soporte_cercano']}({ind['dist_soporte_pct']}%)->CALL"
         elif ctx == 'PRECIO_CERCA_RESISTENCIA':
-            nivel_desc = f"CERCA_RES:{ind['resistencia_cercana']}({ind['dist_resistencia_pct']}%)"
+            nd = f"CERCA_RES:{ind['resistencia_cercana']}({ind['dist_resistencia_pct']}%)"
         elif ctx == 'PRECIO_CERCA_SOPORTE':
-            nivel_desc = f"CERCA_SOP:{ind['soporte_cercano']}({ind['dist_soporte_pct']}%)"
+            nd = f"CERCA_SOP:{ind['soporte_cercano']}({ind['dist_soporte_pct']}%)"
         else:
-            nivel_desc = "ZONA_MEDIA"
+            nd = "ZONA_MEDIA"
 
-        prompt = f"""Eres un trader experto OTC IQ Option. WR objetivo >65%.
-
-PAR:{par} H:{hora}h
-NIVEL:{ctx}|{nivel_desc}
-SKIP_SI:ZONA_MEDIA|racha>={racha_loss}(max2)|WR_hora={wr_hora}%<45%
-
-RSI:{ind['rsi']}({ind['rsi_estado']}) DIV:{ind['divergencia_rsi']}
-EMA:{ind['ema_tendencia']}(9:{ind['ema9']}/21:{ind['ema21']})
-MACD:{'U' if ind['macd_sube'] else 'D'}{ind['macd_hist']}
-BB:{ind['precio_vs_bb']}(H:{ind['bb_superior']} L:{ind['bb_inferior']})
-VOL:{ind['volumen_rel']}x ATR:{ind['atr_rel_pct']}%
+        prompt = f"""Trader experto OTC IQ Option. WR>65%.
+PAR:{par} H:{hora}h NIVEL:{ctx}|{nd}
+SKIP:ZONA_MEDIA|racha>={racha_loss}(max2)|WR={wr_hora}%<45%
+RSI:{ind['rsi']}({ind['rsi_estado']}) EMA:{ind['ema_tendencia']} MACD:{'U' if ind['macd_sube'] else 'D'}{ind['macd_hist']}
+BB:{ind['precio_vs_bb']} VOL:{ind['volumen_rel']}x ATR:{ind['atr_rel_pct']}%
 V5:{''.join(ind['ultimas_5_velas'])} CC:{ind['confluencias_call']} CP:{ind['confluencias_put']}
-
 HOY:{stats['wins']}W/{stats['losses']}L ${stats['pnl']:+.2f}
 MEM:{memoria}
-
-EXP:1m=fuerte_rapida,2m=corta,3m=moderada,5m=todo_alineado
-
-INSTRUCCION CRITICA: Responde UNICAMENTE con el siguiente JSON.
-NO escribas texto antes ni despues. NO uses markdown. SOLO el JSON:
-{{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}"""
+EXP:1m=fuerte,2m=corta,3m=moderada,5m=alineado
+SOLO JSON: {{"decision":"call","confianza":8,"expiracion":2,"razon":"max 10 palabras"}}"""
 
         for _ in range(len(self.MODELOS)):
             try:
                 resp = self.client.chat.completions.create(
                     model=self.modelo_actual,
                     messages=[
-                        {
-                            "role": "system",
-                            "content": "Eres un asistente de trading. SOLO respondes con JSON válido. Nunca escribes texto adicional."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
+                        {"role":"system","content":"Solo respondes JSON válido. Sin texto adicional."},
+                        {"role":"user","content":prompt}
                     ],
-                    max_tokens=100,
-                    temperature=0.1,
+                    max_tokens=100, temperature=0.1,
                 )
-
                 texto = resp.choices[0].message.content.strip()
-                data  = parsear_json_ia(texto)
-
+                data  = parsear_json(texto)
                 if data is None:
-                    log.warning(f"[IA] No JSON: {texto[:80]}")
-                    return {'decision': 'skip', 'confianza': 0,
-                            'expiracion': 5, 'razon': 'No JSON',
-                            'modelo': self.modelo_actual}
-
-                data['decision'] = str(data.get('decision', 'skip')).lower().strip()
-                if data['decision'] not in ['call', 'put', 'skip']:
+                    return {'decision':'skip','confianza':0,'expiracion':5,'razon':'No JSON','modelo':self.modelo_actual}
+                data['decision'] = str(data.get('decision','skip')).lower().strip()
+                if data['decision'] not in ['call','put','skip']:
                     data['decision'] = 'skip'
-                if not (1 <= data.get('confianza', 0) <= 10):
+                if not (1 <= data.get('confianza',0) <= 10):
                     data['confianza'] = 5
-
-                exp = data.get('expiracion', 5)
-                data['expiracion'] = exp if exp in [1, 2, 3, 5] else 5
+                exp = data.get('expiracion',5)
+                data['expiracion'] = exp if exp in [1,2,3,5] else 5
                 data['modelo']     = self.modelo_actual
-
-                log.info(f"[IA] {par} → {data['decision'].upper()} "
-                         f"({data['confianza']}/10) "
-                         f"exp:{data['expiracion']}min "
-                         f"[{self.modelo_actual}] | "
-                         f"{data.get('razon','')[:50]}")
+                log.info(f"[IA] {par} → {data['decision'].upper()} ({data['confianza']}/10) exp:{data['expiracion']}min [{self.modelo_actual}]")
                 return data
-
             except Exception as e:
                 err = str(e)
-                if any(x in err for x in ['429', '400', 'rate_limit',
-                                           'decommissioned', 'tokens']):
+                if any(x in err for x in ['429','400','rate_limit','decommissioned','tokens']):
                     log.warning(f"[IA] Rotando: {err[:60]}")
                     self.siguiente_modelo()
                     time.sleep(2)
                     continue
-                else:
-                    log.error(f"[IA] Error: {e}")
-                    return {'decision': 'skip', 'confianza': 0,
-                            'expiracion': 5, 'razon': str(e)[:50],
-                            'modelo': self.modelo_actual}
+                log.error(f"[IA] Error: {e}")
+                return {'decision':'skip','confianza':0,'expiracion':5,'razon':str(e)[:50],'modelo':self.modelo_actual}
 
         log.error("[IA] Todos los modelos agotados")
-        tg(f"🔴 <b>Todos los modelos agotados</b>\nSe reactivarán mañana.")
-        return {'decision': 'skip', 'confianza': 0,
-                'expiracion': 5, 'razon': 'Sin modelos',
-                'modelo': 'ninguno'}
+        tg("🔴 <b>Modelos agotados</b> — se reactivarán mañana.")
+        return {'decision':'skip','confianza':0,'expiracion':5,'razon':'Sin modelos','modelo':'ninguno'}
 
     def registrar(self, par, decision, expiracion=5, resultado=None):
-        entry = {'par': par, 'decision': decision,
-                 'expiracion': expiracion,
-                 'hora': datetime.now().strftime('%H:%M')}
+        entry = {'par':par,'decision':decision,'expiracion':expiracion,'hora':datetime.now().strftime('%H:%M')}
         if resultado:
             entry['resultado'] = resultado
         self.historial.append(entry)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BOT PRINCIPAL v4.1 FINAL
+# BOT PRINCIPAL v4.2
 # ─────────────────────────────────────────────────────────────────────────────
 class RobotIAOTC:
 
     def __init__(self):
         self.api       = None
         self.ia        = CerebroIA()
-        self.stats     = {'total': 0, 'wins': 0, 'losses': 0, 'pnl': 0.0}
-        self.stats_par = defaultdict(lambda: {'wins': 0, 'losses': 0})
+        self.stats     = {'total':0,'wins':0,'losses':0,'pnl':0.0}
+        self.stats_par = defaultdict(lambda: {'wins':0,'losses':0})
         self.operando  = False
         self._dia      = date.today()
 
@@ -609,17 +512,13 @@ class RobotIAOTC:
 
     def get_candles(self, par):
         try:
-            raw = self.api.get_candles(
-                par, CONFIG['candle_size'],
-                CONFIG['candles_cantidad'], time.time()
-            )
+            raw = self.api.get_candles(par, CONFIG['candle_size'], CONFIG['candles_cantidad'], time.time())
             if not raw:
                 return None
             df = pd.DataFrame(raw)
-            df.rename(columns={'min': 'low', 'max': 'high'}, inplace=True)
-            for col in ['open', 'close', 'high', 'low', 'volume']:
-                if col not in df.columns:
-                    df[col] = 0.0
+            df.rename(columns={'min':'low','max':'high'}, inplace=True)
+            for col in ['open','close','high','low','volume']:
+                if col not in df.columns: df[col] = 0.0
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             return df if len(df) >= 50 else None
         except Exception as e:
@@ -629,8 +528,8 @@ class RobotIAOTC:
     def par_disponible(self, par) -> bool:
         try:
             activos = self.api.get_all_open_time()
-            for tipo in ['turbo', 'binary']:
-                if activos.get(tipo, {}).get(par, {}).get('open', False):
+            for tipo in ['turbo','binary']:
+                if activos.get(tipo,{}).get(par,{}).get('open',False):
                     return True
             return False
         except:
@@ -638,20 +537,16 @@ class RobotIAOTC:
 
     def ejecutar(self, par, direccion, expiracion=5) -> tuple:
         """
-        Ejecuta y verifica resultado.
-        Estrategia:
-        1. Intenta check_win_v3 y v2 (10 intentos)
-        2. Si no responden → compara balance antes/después
-           (siempre funciona sin importar la API)
+        Verifica resultado SOLO por diferencia de balance.
+        Nunca usa check_win — elimina el bloqueo indefinido.
         """
         try:
-            # Guardar balance ANTES
+            # Balance ANTES
             balance_antes = self.api.get_balance()
             log.info(f"[TRADE] Balance antes: ${balance_antes:.2f}")
 
             ok, order_id = self.api.buy(
-                CONFIG['monto_por_trade'], par,
-                direccion, expiracion
+                CONFIG['monto_por_trade'], par, direccion, expiracion
             )
             if not ok:
                 log.error(f"[TRADE] No se pudo abrir orden en {par}")
@@ -659,53 +554,47 @@ class RobotIAOTC:
 
             log.info(f"[TRADE] #{order_id} | {direccion.upper()} {par} {expiracion}min")
 
-            # Esperar que expire
-            time.sleep(expiracion * 60 + 15)
+            # Esperar exactamente la expiración + 15 segundos de buffer
+            espera = expiracion * 60 + 15
+            log.info(f"[TRADE] Esperando {espera}s...")
+            time.sleep(espera)
 
-            # Intento con check_win_v3 / v2
-            for intento in range(10):
+            # Balance DESPUÉS — hasta 5 intentos por si la API tarda
+            balance_despues = balance_antes
+            for i in range(5):
                 try:
-                    data = None
-                    try:
-                        data = self.api.check_win_v3(order_id)
-                    except:
-                        pass
-                    if data is None:
-                        try:
-                            data = self.api.check_win_v2(order_id)
-                        except:
-                            pass
-
-                    if data is not None:
-                        ganancia  = float(data)
-                        resultado = 'win' if ganancia > 0 else 'loss'
-                        log.info(f"[TRADE] v3/v2: {resultado.upper()} | ${ganancia:+.2f}")
-                        return resultado, ganancia
-
-                    log.info(f"[TRADE] Pendiente {intento+1}/10...")
+                    b = self.api.get_balance()
+                    if b is not None and b != balance_antes:
+                        balance_despues = b
+                        break
+                    log.info(f"[TRADE] Balance sin cambio, reintento {i+1}/5...")
                     time.sleep(3)
-                except Exception as e:
-                    log.warning(f"[TRADE] Error check {intento+1}: {e}")
+                except:
                     time.sleep(3)
 
-            # Plan B — comparar balance (siempre funciona)
-            log.warning("[TRADE] v3/v2 sin respuesta — usando balance...")
-            time.sleep(5)
+            # Si sigue igual después de 5 intentos, usar el último valor
+            if balance_despues == balance_antes:
+                try:
+                    balance_despues = self.api.get_balance() or balance_antes
+                except:
+                    pass
 
-            balance_despues = self.api.get_balance()
-            diferencia      = balance_despues - balance_antes
+            diferencia = balance_despues - balance_antes
+            log.info(f"[TRADE] Balance: ${balance_antes:.2f} → ${balance_despues:.2f} | diff: ${diferencia:+.2f}")
 
-            log.info(f"[TRADE] Balance: ${balance_antes:.2f} → "
-                     f"${balance_despues:.2f} | diff: ${diferencia:+.2f}")
-
-            if diferencia > 0:
+            if diferencia > 0.01:
                 resultado = 'win'
                 ganancia  = round(diferencia, 2)
+            elif diferencia < -0.01:
+                resultado = 'loss'
+                ganancia  = round(diferencia, 2)
             else:
+                # Diferencia mínima — asumir loss por el monto apostado
                 resultado = 'loss'
                 ganancia  = -CONFIG['monto_por_trade']
+                log.warning(f"[TRADE] Diferencia mínima — asumiendo LOSS")
 
-            log.info(f"[TRADE] Balance: {resultado.upper()} | ${ganancia:+.2f}")
+            log.info(f"[TRADE] ✅ {resultado.upper()} | ${ganancia:+.2f}")
             return resultado, ganancia
 
         except Exception as e:
@@ -715,16 +604,14 @@ class RobotIAOTC:
     def reset_dia(self):
         if date.today() != self._dia:
             tg_resumen_diario(self.stats)
-            self.stats     = {'total': 0, 'wins': 0, 'losses': 0, 'pnl': 0.0}
-            self.stats_par = defaultdict(lambda: {'wins': 0, 'losses': 0})
+            self.stats     = {'total':0,'wins':0,'losses':0,'pnl':0.0}
+            self.stats_par = defaultdict(lambda: {'wins':0,'losses':0})
             self._dia      = date.today()
             self.ia.modelo_idx    = 0
             self.ia.modelo_actual = self.ia.MODELOS[0]
             log.info("[BOT] Nuevo día — stats y modelos reseteados")
-            try:
-                tg_reactivado(self.api.get_balance())
-            except:
-                tg_reactivado(0.0)
+            try: tg_reactivado(self.api.get_balance())
+            except: tg_reactivado(0.0)
 
     def puede_operar(self) -> tuple:
         self.reset_dia()
@@ -732,14 +619,11 @@ class RobotIAOTC:
             return True, "OK"
         if self.stats['losses'] >= CONFIG['max_perdidas_dia']:
             return False, f"Límite pérdidas ({self.stats['losses']})"
-        if self.stats['total'] >= CONFIG['max_trades_dia']:
-            return False, f"Límite trades ({self.stats['total']})"
         return True, "OK"
 
     def ciclo(self):
         if self.operando:
             return
-
         ok, razon = self.puede_operar()
         if not ok:
             log.info(f"[BOT] Pausado: {razon}")
@@ -749,39 +633,30 @@ class RobotIAOTC:
         candidatos  = []
 
         for par in CONFIG['pares_otc']:
-
             if not self.par_disponible(par):
                 log.info(f"[SKIP] {par} no disponible")
                 continue
-
             racha_loss = leer_racha_par(par)
             if racha_loss >= CONFIG['max_racha_loss_par']:
                 log.info(f"[SKIP] {par} — racha {racha_loss} pérdidas")
                 continue
-
             wr_hora = leer_wr_hora(hora_actual)
-
             df = self.get_candles(par)
             if df is None:
                 continue
-
             try:
                 ind = calcular_indicadores(df)
             except Exception as e:
                 log.warning(f"[SKIP] {par} error: {e}")
                 continue
-
             if ind['contexto_nivel'] == 'PRECIO_EN_ZONA_MEDIA':
                 log.info(f"[SKIP] {par} — zona media")
                 continue
-
             if max(ind['confluencias_call'], ind['confluencias_put']) < 2:
                 log.info(f"[SKIP] {par} — confluencias insuficientes")
                 continue
 
-            log.info(f"[OK] {par} — {ind['contexto_nivel']} "
-                     f"— consultando {self.ia.modelo_actual}...")
-
+            log.info(f"[OK] {par} — {ind['contexto_nivel']} — consultando {self.ia.modelo_actual}...")
             decision = self.ia.analizar(par, ind, self.stats, racha_loss, wr_hora)
 
             if decision['decision'] == 'skip':
@@ -795,14 +670,14 @@ class RobotIAOTC:
                          else f"Soporte {ind['soporte_cercano']}")
 
             candidatos.append({
-                'par':        par,
-                'direccion':  decision['decision'],
-                'confianza':  decision['confianza'],
-                'expiracion': decision['expiracion'],
-                'razon':      decision['razon'],
-                'precio':     ind['precio'],
-                'nivel':      nivel_txt,
-                'modelo':     decision.get('modelo', self.ia.modelo_actual),
+                'par':       par,
+                'direccion': decision['decision'],
+                'confianza': decision['confianza'],
+                'expiracion':decision['expiracion'],
+                'razon':     decision['razon'],
+                'precio':    ind['precio'],
+                'nivel':     nivel_txt,
+                'modelo':    decision.get('modelo', self.ia.modelo_actual),
             })
             time.sleep(1)
 
@@ -811,17 +686,11 @@ class RobotIAOTC:
             return
 
         mejor = max(candidatos, key=lambda x: x['confianza'])
-        log.info(f"[BOT] ✅ {mejor['par']} {mejor['direccion'].upper()} | "
-                 f"conf:{mejor['confianza']}/10 | exp:{mejor['expiracion']}min | "
-                 f"{mejor['nivel']} [{mejor['modelo']}]")
+        log.info(f"[BOT] ✅ {mejor['par']} {mejor['direccion'].upper()} conf:{mejor['confianza']}/10 exp:{mejor['expiracion']}min")
 
-        tg_entrada(
-            mejor['par'], mejor['direccion'],
-            mejor['confianza'], mejor['razon'],
-            mejor['precio'], mejor['nivel'],
-            mejor['expiracion'], mejor['modelo'],
-            self.stats
-        )
+        tg_entrada(mejor['par'], mejor['direccion'], mejor['confianza'],
+                   mejor['razon'], mejor['precio'], mejor['nivel'],
+                   mejor['expiracion'], mejor['modelo'], self.stats)
 
         self.operando = True
         try:
@@ -829,7 +698,7 @@ class RobotIAOTC:
                 mejor['par'], mejor['direccion'], mejor['expiracion']
             )
 
-            if resultado in ('win', 'loss'):
+            if resultado in ('win','loss'):
                 self.stats['total'] += 1
                 self.stats['pnl']   += ganancia
                 if resultado == 'win':
@@ -840,22 +709,15 @@ class RobotIAOTC:
                     self.stats_par[mejor['par']]['losses'] += 1
 
                 balance = self.api.get_balance()
-                tg_resultado(
-                    mejor['par'], mejor['direccion'],
-                    resultado, ganancia, balance,
-                    self.stats['wins'], self.stats['losses']
-                )
-                self.ia.registrar(
-                    mejor['par'], mejor['direccion'],
-                    mejor['expiracion'], resultado
-                )
-                guardar_csv(
-                    mejor['par'], mejor['direccion'],
-                    mejor['confianza'], mejor['razon'],
-                    mejor['expiracion'], resultado, ganancia, balance
-                )
-                log.info(f"[STATS] {self.stats['wins']}W/{self.stats['losses']}L | "
-                         f"P&L ${self.stats['pnl']:+.2f} | ${balance:.2f}")
+                tg_resultado(mejor['par'], mejor['direccion'],
+                             resultado, ganancia, balance,
+                             self.stats['wins'], self.stats['losses'])
+                self.ia.registrar(mejor['par'], mejor['direccion'],
+                                  mejor['expiracion'], resultado)
+                guardar_csv(mejor['par'], mejor['direccion'],
+                            mejor['confianza'], mejor['razon'],
+                            mejor['expiracion'], resultado, ganancia, balance)
+                log.info(f"[STATS] {self.stats['wins']}W/{self.stats['losses']}L P&L ${self.stats['pnl']:+.2f} | ${balance:.2f}")
 
                 if self.stats['losses'] >= CONFIG['max_perdidas_dia']:
                     if CONFIG['iq_modo'] == 'PRACTICE':
@@ -866,46 +728,34 @@ class RobotIAOTC:
             self.operando = False
 
     def run(self):
-        log.info("[START] Robot IA OTC v4.1 FINAL...")
-
+        log.info("[START] Robot IA OTC v4.2 FINAL...")
         if not CONFIG['iq_email'] or not CONFIG['iq_password']:
-            log.error("[ERROR] Falta IQ_EMAIL o IQ_PASSWORD")
-            return
+            log.error("[ERROR] Falta IQ_EMAIL o IQ_PASSWORD"); return
         if not CONFIG['groq_key']:
-            log.error("[ERROR] Falta GROQ_KEY")
-            return
-
+            log.error("[ERROR] Falta GROQ_KEY"); return
         if not self.conectar():
-            log.error("[ERROR] No se pudo conectar")
-            return
+            log.error("[ERROR] No se pudo conectar"); return
 
         ciclo_n = 0
         while True:
             ciclo_n += 1
             log.info(f"\n{'─'*50}")
-            log.info(f"[CICLO {ciclo_n}] "
-                     f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | "
+            log.info(f"[CICLO {ciclo_n}] {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | "
                      f"{self.stats['wins']}W/{self.stats['losses']}L | "
-                     f"P&L ${self.stats['pnl']:+.2f} | "
-                     f"{self.ia.modelo_actual}")
-
+                     f"P&L ${self.stats['pnl']:+.2f} | {self.ia.modelo_actual}")
             try:
                 if not self.api.check_connect():
                     log.warning("[BOT] Desconectado. Reconectando...")
                     self.conectar()
             except:
-                log.warning("[BOT] Error conexión. Reconectando...")
                 self.conectar()
-
             try:
                 self.ciclo()
             except Exception as e:
                 log.error(f"[BOT] Error: {e}")
-
             log.info(f"[WAIT] {CONFIG['sleep_scan']}s...")
             time.sleep(CONFIG['sleep_scan'])
 
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     bot = RobotIAOTC()
     bot.run()
