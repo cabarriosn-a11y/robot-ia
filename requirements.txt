@@ -2,3 +2,5 @@ groq
 pandas
 numpy
 iqoptionapi @ git+https://github.com/iqoptionapi/iqoptionapi.git
+gspread
+google-auth
