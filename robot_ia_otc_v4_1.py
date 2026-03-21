@@ -72,7 +72,7 @@ CONFIG = {
     'iq_password': os.environ.get('IQ_PASSWORD', ''),
     'iq_modo':     'PRACTICE',
     'groq_key':    os.environ.get('GROQ_KEY', ''),
-    'min_confianza': 7,
+    'min_confianza': 8,
 
     'telegram_token':   os.environ.get('TELEGRAM_TOKEN', ''),
     'telegram_chat_id': os.environ.get('TELEGRAM_CHAT',  ''),
