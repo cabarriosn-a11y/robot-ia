@@ -671,6 +671,34 @@ SOLO JSON: {{"decision":"{senal_bt}","confianza":8,"expiracion":2,"razon":"max 1
         entry = {'par':par,'decision':decision,'hora':datetime.now().strftime('%H:%M')}
         if resultado: entry['resultado'] = resultado
         self.historial.append(entry)
+# ─────────────────────────────────────────────────────────────────────────────
+# SERVIDOR HTTP MINIMO — requerido por Render para no hacer timeout
+# ─────────────────────────────────────────────────────────────────────────────
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'OK')
+    def log_message(self, *args):
+        pass  # silenciar logs del servidor
+
+def iniciar_servidor():
+    port = int(os.environ.get('PORT', 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
+
+# En if __name__ == '__main__':
+if __name__ == '__main__':
+    # Arrancar servidor HTTP en hilo separado
+    t = threading.Thread(target=iniciar_servidor, daemon=True)
+    t.start()
+    log.info(f"[HTTP] Health check en puerto {os.environ.get('PORT', 8080)}")
+    # Arrancar bot
+    bot = RobotIAOTC()
+    bot.run()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BOT PRINCIPAL v6.1
